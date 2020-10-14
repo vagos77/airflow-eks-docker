@@ -50,14 +50,14 @@ class TestDagValidation:
             retry_delay = dag.default_args.get('retry_delay', None)
             assert retry_delay is not None, "You must specify a retry delay (seconds) in the DAG: {0}".format(dag_id)
  
-    def test_number_of_dags(self, dagbag):
-        """
-            Verify if there is the right number of DAGs in the dag folder
-            - Check number of dags
-        """
-        stats = dagbag.dagbag_stats
-        dag_num = sum([o.dag_num for o in stats])
-        assert dag_num == self.EXPECTED_NUMBER_OF_DAGS, "Wrong number of dags, {0} expected got {1} (Can be due to cycles!)".format(self.EXPECTED_NUMBER_OF_DAGS, dag_num)
+    # def test_number_of_dags(self, dagbag):
+    #     """
+    #         Verify if there is the right number of DAGs in the dag folder
+    #         - Check number of dags
+    #     """
+    #     stats = dagbag.dagbag_stats
+    #     dag_num = sum([o.dag_num for o in stats])
+    #     assert dag_num == self.EXPECTED_NUMBER_OF_DAGS, "Wrong number of dags, {0} expected got {1} (Can be due to cycles!)".format(self.EXPECTED_NUMBER_OF_DAGS, dag_num)
         
     def test_default_args_email(self, dagbag):
         for dag_id, dag in dagbag.dags.items():
