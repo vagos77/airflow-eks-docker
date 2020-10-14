@@ -63,3 +63,4 @@ class TestDagValidation:
         for dag_id, dag in dagbag.dags.items():
             emails = dag.default_args.get('email', [])
             assert self.REQUIRED_EMAIL in emails, "The email {0} for sending alerts is missing from the DAG {1}".format(self.REQUIRED_EMAIL, dag_id)
+    
