@@ -1,8 +1,10 @@
 FROM apache/airflow:1.10.12-python3.7
 
-#LABEL version="1.0.0"
+LABEL version="1.0.3"
 
 RUN pip install --user pytest
+
+RUN pip install --no-cache-dir --user --upgrade requests==2.23.0 && pip install --no-cache-dir --user snowflake-sqlalchemy snowflake-connector-python vim
 
 COPY dags/ ${AIRFLOW_HOME}/dags
 COPY unittests.cfg ${AIRFLOW_HOME}/unittests.cfg
