@@ -89,6 +89,12 @@ dag = DAG(
 #
 # replacement_dict = {'{SOURCE}': 'AE'}
 
+def parsing():
+    return True
+
+def processing():
+    return True
+
 with dag:
     t1 = PythonOperator(task_id="parsing", python_callable=parsing)
     t2 = PythonOperator(task_id="processing", python_callable=processing)
