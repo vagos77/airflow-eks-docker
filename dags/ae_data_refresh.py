@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import airflow
 from airflow import DAG
@@ -18,7 +18,17 @@ from airflow.operators.python_operator import PythonOperator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-args = {"owner": "vagos", "start_date": airflow.utils.dates.days_ago(2)}
+args = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "start_date": datetime(2020, 1, 1),
+    "email": ["support@airflow.com"],
+    "email_on_failure": False,
+    "email_on_retry": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=5)
+}
+
 snowflake_connection = {
     'account': 'altusgroupargus.eu-west-1',
     'user': 'FIXME',
