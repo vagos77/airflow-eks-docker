@@ -6,7 +6,7 @@ from airflow import DAG
 from airflow.contrib.operators.snowflake_operator import SnowflakeOperator
 from airflow.operators.python_operator import PythonOperator
 
-# from scripts import create_pivot_table as cpt
+from scripts import create_pivot_table as cpt
 # from scripts import custom_snowflake as db_sf
 # from scripts import drop_transient_tables as dtt
 # from scripts import link_table as lt
