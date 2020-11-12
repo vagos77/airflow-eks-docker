@@ -1,11 +1,18 @@
 import logging
-from datetime import datetime, timezone, timedelta
-
+import sys
+import os
 import airflow
+
+from datetime import datetime, timezone, timedelta
 from airflow import DAG
 from airflow.contrib.operators.snowflake_operator import SnowflakeOperator
 from airflow.operators.python_operator import PythonOperator
 
+# Add parent level dir in path to allow for import
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+
+# Import from parent level - DO NOT MOVE
 from scripts import create_pivot_table as cpt
 from scripts import custom_snowflake as db_sf
 from scripts import drop_transient_tables as dtt
