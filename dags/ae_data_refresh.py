@@ -2,6 +2,7 @@ import logging
 import sys
 import os
 import airflow
+import json
 
 from datetime import datetime, timezone, timedelta
 from airflow import DAG
@@ -17,6 +18,8 @@ from scripts import create_pivot_table as cpt
 from scripts import custom_snowflake as db_sf
 from scripts import drop_transient_tables as dtt
 from scripts import link_table as lt
+
+from custom_aws import secrets_manager as sm
 
 # currentdir = os.path.dirname(os.path.realpath(__file__))
 # parentdir = os.path.dirname(currentdir)
@@ -36,16 +39,25 @@ args = {
     "retry_delay": timedelta(minutes=1)
 }
 
-snowflake_connection = {
-    'account': 'altusgroupargus.eu-west-1',
-    'user': 'FIXME',
-    'password': 'FIXME',
-    'warehouse': 'LOAD_WH_VAGOS',
-    'database': 'AIRFLOW_PARALLEL'
-}
+# snowflake_connection = {
+#     'account': 'altusgroupargus.eu-west-1',
+#     'user': 'FIXME',
+#     'password': 'FIXME',
+#     'warehouse': 'LOAD_WH_VAGOS',
+#     'database': 'AIRFLOW_PARALLEL'
+# }
 
-warehouse = snowflake_connection['warehouse']
-database = snowflake_connection['database']
+# Retrieve Snowflake connection details from Secrets Manager
+secrets_manager = sm.SecretsManager()
+# Convert string to dictionary which is what Snowflake connector expects
+snowflake_connection = json.loads(secrets_manager.get_secret('bi/connections/snowflake_admin'))
+
+warehouse = 'LOAD_WH_VAGOS'
+database = 'AIRFLOW_PARALLEL'
+
+snowflake_connection['warehouse'] = warehouse
+snowflake_connection['database'] = database
+
 
 parallelism = 5
 
@@ -84,7 +96,7 @@ def extract_sql_commands(script, replacement_dict=None):
 def build_bv_link_table(connection_dictionary):
     # Init Snowflake object
     snowflake_db = db_sf.SnowflakeDatabase(connection_dictionary)
-    database_name = snowflake_connection['database']
+    database_name = connection_dictionary['database']
 
     link_table_query = lt.generate_link_table_query(snowflake_db, database_name)
 
@@ -177,7 +189,7 @@ with dag:
         python_callable=cpt.create_pivot_table,
         op_kwargs={
             'connection_dict': snowflake_connection,
-            'source_database': snowflake_connection['database'],
+            'source_database': database,
             'source_schema': 'DATA_VAULT',
             'source_table': 'SAT_AE_PROPERTY_KPI',
             'destination_schema': 'DATA_VAULT',
