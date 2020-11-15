@@ -1,10 +1,10 @@
 import logging
-import sys
 import os
-import airflow
+import sys
 import json
-
 from datetime import datetime, timezone, timedelta
+
+import airflow
 from airflow import DAG
 from airflow.contrib.operators.snowflake_operator import SnowflakeOperator
 from airflow.operators.python_operator import PythonOperator
@@ -20,10 +20,6 @@ from scripts import drop_transient_tables as dtt
 from scripts import link_table as lt
 
 from custom_aws import secrets_manager as sm
-
-# currentdir = os.path.dirname(os.path.realpath(__file__))
-# parentdir = os.path.dirname(currentdir)
-# sys.path.append(parentdir)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,11 +47,10 @@ database = 'AIRFLOW_PARALLEL'
 snowflake_connection['warehouse'] = warehouse
 snowflake_connection['database'] = database
 
-
 parallelism = 5
 
 dag = DAG(
-    dag_id="ae-data-refresh", default_args=args, schedule_interval=None
+    dag_id="at-data-refresh", default_args=args, schedule_interval=None
 )
 
 current_timestamp_utc = datetime.now(timezone.utc)
@@ -89,10 +84,8 @@ def extract_sql_commands(script, replacement_dict=None):
 def build_bv_link_table(connection_dictionary):
     # Init Snowflake object
     snowflake_db = db_sf.SnowflakeDatabase(connection_dictionary)
-    database_name = connection_dictionary['database']
-
+    database_name = snowflake_connection['database']
     link_table_query = lt.generate_link_table_query(snowflake_db, database_name)
-
     snowflake_db.execute_query(link_table_query)
 
 
@@ -109,21 +102,27 @@ create_database_query = [
     """CREATE SCHEMA IF NOT EXISTS BUSINESS_VAULT;""",
 ]
 
-replacement_dict = {'{SOURCE}': 'AE'}
+variables_query = [
+    """ALTER SESSION SET TIMEZONE = 'UTC';""",
+    """SET LoadDTS = \'{TIMESTAMP}\';""".format(TIMESTAMP=current_timestamp_utc),
+    # Temporary variables required where source files are not currently providing data
+    # Change these as required for testing, e.g. incrementing version number
+    # FIXME
+    """SET S3folder = 'V6.5';""",
+    """SET AEPropertyLastModifiedBy = 'user@example.com';""",
+    """SET AEPropertyLastModifiedDate = \'{TIMESTAMP}\';""".format(TIMESTAMP=current_timestamp_utc)
+]
+
+replacement_dict = {'{SOURCE}': 'AT'}
 
 with dag:
     """
-        - Loads AE data from S3
+        - Loads AT data from S3
         - Creates necessary resources such as database/schema/tables
         - Builds Data/Business Vaults
-        - Pivots KPIs
+        - Pivots facts and dimensions data
         - Build Link Table in Business Vault
     """
-
-    # waiting_for_ae_data = S3KeySensor(task_id="waiting-for-ae-data",
-    #                                   aws_conn_id="my_s3_conn",
-    #                                   bucket_key="s3://voyanta-glue/snowflake/json/ae/refresh_ae.txt",
-    #                                   poke_interval=5)
 
     create_database = SnowflakeOperator(
         task_id='create-database',
@@ -142,7 +141,7 @@ with dag:
     )
 
     create_data_vault_tables = SnowflakeOperator(
-        task_id='create-data-vault-tables-ae',
+        task_id='create-data-vault-tables',
         sql=extract_sql_commands('scripts/sql/data_vault/dv_create_tables.sql'),
         snowflake_conn_id='snowflake_conn',
         warehouse=warehouse,
@@ -150,9 +149,9 @@ with dag:
         schema='DATA_VAULT',
     )
 
-    load_data_ae = SnowflakeOperator(
-        task_id='load-data-ae',
-        sql=extract_sql_commands('scripts/sql/data_vault/dv_ae_load_data.sql'),
+    create_transient_tables = SnowflakeOperator(
+        task_id='create-transient-tables',
+        sql=variables_query + extract_sql_commands('scripts/sql/data_vault/dv_at_create_transient_tables.sql'),
         snowflake_conn_id='snowflake_conn',
         warehouse=warehouse,
         database=database,
@@ -168,26 +167,89 @@ with dag:
         schema='DATA_VAULT',
     )
 
-    pivot_kpi = PythonOperator(
-        task_id='pivot-kpi-ae',
+    build_business_vault_dims = SnowflakeOperator(
+        task_id='build-bv-dimensions',
+        sql=extract_sql_commands('scripts/sql/business_vault/bv_build_dimensions_at.sql'),
+        snowflake_conn_id='snowflake_conn',
+        warehouse=warehouse,
+        database=database,
+        schema='BUSINESS_VAULT',
+    )
+
+    pivot_at_characteristic = PythonOperator(
+        task_id='pivot-at-characteristic',
         python_callable=cpt.create_pivot_table,
         op_kwargs={
             'connection_dict': snowflake_connection,
-            'source_database': database,
+            'source_database': snowflake_connection['database'],
             'source_schema': 'DATA_VAULT',
-            'source_table': 'SAT_AE_PROPERTY_KPI',
+            'source_table': 'TRANSIENT_AT_DIMENSION_CHARACTERISTIC',
             'destination_schema': 'DATA_VAULT',
-            'destination_table': 'TRANSIENT_AE_PROPERTY_KPI_PIVOTED',
+            'destination_table': 'TRANSIENT_AT_DIMENSION_CHARACTERISTIC_PIVOTED',
             'create_view': False,
-            'base_columns': 'MD5_HUB_AE_PROPERTY,CURRENCY_BASIS,IS_ASSURED_RESULTSET,RESULTSET,ACCOUNT_CODE,VALUATION_DATE_VALUE,UNIT_OF_MEASURE,DATE,LDTS',
-            'pivot_columns': 'LINE_ITEM_TYPE_NAME',
-            'exclude_columns': 'HASH_DIFF,RESULTSET_ID,LINE_ITEM_TYPE_ID,RSRC'
+            'base_columns': 'MD5_HUB_AT_ENTITY,DIMENSION',
+            'pivot_columns': 'LINE_ITEM',
+            'type_column': 'TYPE'
         }
     )
 
-    build_business_vault_dims = SnowflakeOperator(
-        task_id='build-bv-dimensions',
-        sql=extract_sql_commands('scripts/sql/business_vault/bv_build_dimensions_ae.sql', replacement_dict),
+    pivot_at_dkpi = PythonOperator(
+        task_id='pivot-at-dkpi',
+        python_callable=cpt.create_pivot_table,
+        op_kwargs={
+            'connection_dict': snowflake_connection,
+            'source_database': snowflake_connection['database'],
+            'source_schema': 'DATA_VAULT',
+            'source_table': 'TRANSIENT_AT_DIMENSION_KPI',
+            'destination_schema': 'BUSINESS_VAULT',
+            'destination_table': 'DIMENSION_KPI_AT',
+            'create_view': False,
+            'base_columns': 'PK_DIMENSION_KPI_AT,FK_DIMENSION_SCENARIO_AT,FK_DIMENSION_ENTITY_AT,FK_DIMENSION_DATE,DIMENSION',
+            'pivot_columns': 'LINE_ITEM',
+            'exclude_columns': 'TAG,CATEGORY',
+            'type_column': 'TYPE'
+        }
+    )
+
+    pivot_at_dflow = PythonOperator(
+        task_id='pivot-at-dflow',
+        python_callable=cpt.create_pivot_table,
+        op_kwargs={
+            'connection_dict': snowflake_connection,
+            'source_database': snowflake_connection['database'],
+            'source_schema': 'DATA_VAULT',
+            'source_table': 'TRANSIENT_AT_DIMENSION_FLOW',
+            'destination_schema': 'BUSINESS_VAULT',
+            'destination_table': 'DIMENSION_FLOW_AT',
+            'create_view': False,
+            'base_columns': 'PK_DIMENSION_FLOW_AT,FK_DIMENSION_SCENARIO_AT,FK_DIMENSION_ENTITY_AT,FK_DIMENSION_DATE,DIMENSION',
+            'pivot_columns': 'LINE_ITEM',
+            'exclude_columns': 'TAG,CATEGORY',
+            'type_column': 'TYPE'
+        }
+    )
+
+    pivot_at_fkpi = PythonOperator(
+        task_id='pivot-at-fkpi',
+        python_callable=cpt.create_pivot_table,
+        op_kwargs={
+            'connection_dict': snowflake_connection,
+            'source_database': snowflake_connection['database'],
+            'source_schema': 'DATA_VAULT',
+            'source_table': 'TRANSIENT_AT_FACT_KPI',
+            'destination_schema': 'BUSINESS_VAULT',
+            'destination_table': 'FACT_KPI_AT',
+            'create_view': False,
+            'base_columns': 'PK_FACT_KPI_AT,FK_DIMENSION_SCENARIO_AT,FK_DIMENSION_ENTITY_AT,FK_DIMENSION_DATE,FK_DIMENSION_CURRENCY,DIMENSION',
+            'pivot_columns': 'LINE_ITEM',
+            'exclude_columns': 'TAG,CATEGORY',
+            'type_column': 'TYPE'
+        }
+    )
+
+    build_business_vault_dims2 = SnowflakeOperator(
+        task_id='build-bv-dimensions2',
+        sql=extract_sql_commands('scripts/sql/business_vault/bv_build_dimensions_after_pivot_at.sql'),
         snowflake_conn_id='snowflake_conn',
         warehouse=warehouse,
         database=database,
@@ -214,17 +276,36 @@ with dag:
         python_callable=dtt.drop_transient_tables,
         op_kwargs={
             'connection_dict': snowflake_connection,
-            'source': 'AE'
+            'source': 'AT'
         }
     )
 
     # Dependencies up to this point
-    create_database >> create_database_resources >> create_data_vault_tables
-    create_data_vault_tables >> load_data_ae >> load_data_xs >> pivot_kpi
-    pivot_kpi >> build_business_vault_dims >> build_business_vault_dims_cross >> drop_transient_tables
+    create_database >> create_database_resources >> create_data_vault_tables >> create_transient_tables
+
+    # Parallelise SQL commands to load the data vault tables
+    at_sql_commands = extract_sql_commands('scripts/sql/data_vault/dv_at_load_data.sql')
+    items_per_task = round(len(at_sql_commands) / parallelism)
+    sql_chunks = [c for c in divide_chunks(at_sql_commands, items_per_task)]
+
+    for i, chunk in enumerate(sql_chunks):
+        task_id = 'load-data-at-{}'.format(i)
+        load_data_at = SnowflakeOperator(
+            task_id=task_id,
+            sql=variables_query + chunk,
+            # Combine variables with query chunk. Some of the queries require the variables to be set first
+            snowflake_conn_id='snowflake_conn',
+            warehouse=warehouse,
+            database=database,
+            schema='DATA_VAULT',
+        )
+        create_transient_tables >> load_data_at >> load_data_xs
+
+    # Dependencies after parallel SQL commands
+    load_data_xs >> build_business_vault_dims
 
     # Parallelise SQL commands to create facts
-    ae_sql_commands = extract_sql_commands('scripts/sql/business_vault/bv_build_facts_ae.sql', replacement_dict)
+    ae_sql_commands = extract_sql_commands('scripts/sql/business_vault/bv_build_facts_at.sql')
     items_per_task = round(len(ae_sql_commands) / parallelism)
     sql_chunks = [c for c in divide_chunks(ae_sql_commands, items_per_task)]
 
@@ -238,7 +319,9 @@ with dag:
             database=database,
             schema='BUSINESS_VAULT',
         )
-        pivot_kpi >> build_business_vault_facts >> build_link_table
+        load_data_xs >> build_business_vault_facts >> pivot_at_fkpi
 
-    # Dependencies after parallel SQL commands
-    build_link_table >> drop_transient_tables
+    pivot_at_fkpi >> build_link_table >> drop_transient_tables
+    build_business_vault_dims >> pivot_at_characteristic >> build_business_vault_dims2 >> build_business_vault_dims_cross >> drop_transient_tables
+    build_business_vault_dims >> pivot_at_dkpi >> drop_transient_tables
+    build_business_vault_dims >> pivot_at_dflow >> drop_transient_tables

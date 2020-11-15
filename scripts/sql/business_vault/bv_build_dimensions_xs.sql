@@ -1,0 +1,68 @@
+/* *********************************************************************************** */
+/* *** Cross-product ***************************************************************** */
+/* *********************************************************************************** */
+
+-- FIXME
+-- TODO add new columns from AE scenarios
+-- SCENARIO_CURRENCY string(3)
+-- SCENARIO_AREA_MEASURE integer -- TODO needs decoding
+-- SCENARIO_ARCHIVED boolean
+-- IS_BASE_SCENARIO boolean
+
+CREATE OR REPLACE TABLE DIMENSION_PLATFORM_SCENARIO AS (
+  -- For platform scenarios that have both AE/AT populated nullify the AE Scenario in order to avoid duplication of data
+  -- if the data is joined in non BI tools such as excel
+  SELECT DISTINCT
+    MD5(COALESCE(TO_VARCHAR(L.AE_SCENARIO_ID), '') || '^' || COALESCE(TO_VARCHAR(L.AT_SCENARIO_ID), '') || 'AE') AS PK_DIMENSION_PLATFORM_SCENARIO
+    , IFF(L.MD5_HUB_AT_SCENARIO IS NOT NULL, MD5(''), L.MD5_HUB_AE_SCENARIO) AS PK_DIMENSION_SCENARIO_AE
+    , COALESCE(L.MD5_HUB_AT_SCENARIO, MD5(''))  AS PK_DIMENSION_SCENARIO_AT
+    , D.PLATFORM_SCENARIO_NAME
+    , D.AT_SCENARIO_NAME
+    , D.AE_SCENARIO_NAME
+    , IFF(L.MD5_HUB_AT_SCENARIO IS NOT NULL,'AT', 'AE') AS SOURCE
+  FROM
+      DATA_VAULT.LINK_PLATFORM_SCENARIO L
+      INNER JOIN DATA_VAULT.SAT_PLATFORM_SCENARIO_DETAILS D ON L.MD5_LINK_PLATFORM_SCENARIO = D.MD5_LINK_PLATFORM_SCENARIO
+
+  -- Select AT platform scenarios only and MD5('') "nullify" the AT Scenario Key. This essentially creates two records
+  -- for each AT scenario where one has AE Scenario populated but AT Null. This is necessary for the data to link
+  -- correctly to AE only information where AT is null. Otherwise the records will be dropped.
+  UNION
+  SELECT DISTINCT
+    MD5(COALESCE(TO_VARCHAR(L.AE_SCENARIO_ID), '') || '^' || COALESCE(TO_VARCHAR(L.AT_SCENARIO_ID), '') || 'AT') AS PK_DIMENSION_PLATFORM_SCENARIO
+    , L.MD5_HUB_AE_SCENARIO AS PK_DIMENSION_SCENARIO_AE
+    , MD5('') AS PK_DIMENSION_SCENARIO_AT
+    , D.PLATFORM_SCENARIO_NAME
+    , D.AT_SCENARIO_NAME
+    , D.AE_SCENARIO_NAME
+    , 'AT' AS SOURCE
+  FROM
+      DATA_VAULT.LINK_PLATFORM_SCENARIO L
+      INNER JOIN DATA_VAULT.SAT_PLATFORM_SCENARIO_DETAILS D ON L.MD5_LINK_PLATFORM_SCENARIO = D.MD5_LINK_PLATFORM_SCENARIO
+  WHERE L.MD5_HUB_AT_SCENARIO IS NOT NULL
+);
+
+CREATE OR REPLACE TABLE METADATA_CHANGES AS (
+  SELECT
+    m.MD5_HUB_AE_PROPERTY AS DIMENSION_KEY
+    , 'DIMENSION_PROPERTY_AE' AS DIMENSION
+    , m.RSRC AS METADATA_SOURCE
+    , p.PROPERTY_VERSION AS VERSION
+    , m.PROPERTY_LAST_MODIFIED_BY AS LAST_MODIFIED_BY
+    , m.PROPERTY_LAST_MODIFIED_DATE AS LAST_MODIFIED_DATE
+  FROM
+    DATA_VAULT.PIT_AE_PROPERTY p
+    INNER JOIN DATA_VAULT.SAT_AE_METADATA_PROPERTY m ON p.MD5_HUB_AE_PROPERTY = m.MD5_HUB_AE_PROPERTY AND p.LDTS_SAT_AE_METADATA_PROPERTY = m.LDTS
+
+  UNION ALL
+
+  SELECT
+    n.MD5_HUB_AT_ENTITY AS DIMENSION_KEY
+    , 'DIMENSION_ENTITY_AT' AS DIMENSION
+    , n.RSRC AS METADATA_SOURCE
+    , n.AE_PROPERTY_VERSION AS VERSION
+    , n.ENTITY_LAST_MODIFIED_BY AS LAST_MODIFIED_BY
+    , n.ENTITY_LAST_MODIFIED_DATE AS LAST_MODIFIED_DATE
+  FROM
+    DATA_VAULT.SAT_AT_METADATA_ENTITY n
+);

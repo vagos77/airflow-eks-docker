@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS ae_property_data_raw (
 CREATE TABLE IF NOT EXISTS ae_coa_data_raw (
   SRC VARIANT);
 
+-- Create raw JSON table
+CREATE TABLE IF NOT EXISTS ae_lit_data_raw (
+  SRC VARIANT);
+
 /* *********************************************************************************** */
 /* *** HUBs ************************************************************************** */
 /* *********************************************************************************** */
@@ -66,6 +70,13 @@ CREATE TABLE IF NOT EXISTS HUB_AE_LOAN (
   , RSRC string(100) 
 );
 
+CREATE TABLE IF NOT EXISTS HUB_AE_LINE_ITEM_TYPE (
+    MD5_HUB_AE_LINE_ITEM_TYPE string(32)
+  , LINE_ITEM_TYPE_NAME string(255)
+  , LDTS timestamp_ltz
+  , RSRC string(100)
+);
+
 /* *********************************************************************************** */
 /* *** SATs ************************************************************************** */
 /* *********************************************************************************** */
@@ -84,6 +95,10 @@ CREATE TABLE IF NOT EXISTS SAT_AE_SCENARIO_DETAILS (
   , HASH_DIFF string(32)
   , SCENARIO_NAME string(255)
   , SCENARIO_DESCRIPTION string
+  , SCENARIO_CURRENCY string(3)
+  , SCENARIO_AREA_MEASURE integer -- TODO needs decoding
+  , SCENARIO_ARCHIVED boolean
+  , IS_BASE_SCENARIO boolean
   , LDTS timestamp_ltz
   , RSRC string(100)
 );
@@ -102,12 +117,14 @@ CREATE TABLE IF NOT EXISTS SAT_AE_PROPERTY_DETAILS (
   , PROPERTY_NAME string(255)
   , VALUATION_DATE date
   , RESALE_DATE date
-  , PROPERTY_TYPE integer -- TODO needs decoding
+  , PROPERTY_TYPE integer
+  , PROPERTY_TYPE_ENUM string(255)
   , LOCAL_CURRENCY string(3)
-  , PROPERTY_AREA_MEASURE integer -- TODO needs decoding
-  , SCENARIO_CURRENCY string(3)
-  , SCENARIO_AREA_MEASURE integer -- TODO needs decoding
-  , SCENARIO_ARCHIVED boolean
+  , PROPERTY_AREA_MEASURE integer
+  , PROPERTY_AREA_MEASURE_ENUM string(255)
+  , PROPERTY_ARCHIVED boolean
+  , PROPERTY_DESCRIPTION string
+  , PROPERTY_COMMENTS string
   , LDTS timestamp_ltz
   , RSRC string(100)
 );
@@ -123,19 +140,20 @@ CREATE TABLE IF NOT EXISTS SAT_AE_METADATA_PROPERTY (
 
 CREATE TABLE IF NOT EXISTS SAT_AE_PROPERTY_LOCATION (
     MD5_HUB_AE_PROPERTY string(32)
-    , HASH_DIFF string(32)
-    , ADDRESS string
-    , LDTS timestamp_ltz
-    , RSRC string(100)
+  , HASH_DIFF string(32)
+  , ADDRESS string
+  , LDTS timestamp_ltz
+  , RSRC string(100)
 );
 
 CREATE TABLE IF NOT EXISTS SAT_AE_PROPERTY_CASHFLOW (
     MD5_HUB_AE_PROPERTY string(32)
   , HASH_DIFF string(32)
   , CURRENCY_BASIS integer -- 0 for property currency, 1 for scenario currency
-  , IS_ASSURED integer -- 0 default calculation, 1 calculation for assured income
+  , IS_ASSURED_RESULTSET integer -- 0 default calculation, 1 calculation for assured income
   , LINE_ITEM_TYPE_ID integer
   , LINE_ITEM_TYPE_NAME string(255)
+  , ACCOUNT_CODE string(255)
   , VALUATION_DATE_VALUE double
   , RESALE_VALUE double
   , UNIT_OF_MEASURE integer -- TODO needs decoding, not yet implemented
@@ -149,10 +167,12 @@ CREATE TABLE IF NOT EXISTS SAT_AE_PROPERTY_KPI (
     MD5_HUB_AE_PROPERTY string(32)
   , HASH_DIFF string(32)
   , CURRENCY_BASIS integer -- 0 for property currency, 1 for scenario currency
-  , IS_ASSURED integer -- 0 default calculation, 1 calculation for assured income
+  , IS_ASSURED_RESULTSET integer -- 0 default calculation, 1 calculation for assured income
+  , RESULTSET_ID integer
+  , RESULTSET string(255)
   , LINE_ITEM_TYPE_ID integer
   , LINE_ITEM_TYPE_NAME string(255)
-  , ACCOUNT_ID string(255)
+  , ACCOUNT_CODE string(255)
   , VALUATION_DATE_VALUE double
   , UNIT_OF_MEASURE integer -- TODO needs decoding, not yet implemented
   , AMOUNT double
@@ -165,38 +185,42 @@ CREATE TABLE IF NOT EXISTS SAT_AE_PROPERTY_PAYMENT (
     MD5_HUB_AE_PROPERTY string(32)
   , HASH_DIFF string(32)
   , CURRENCY_BASIS integer -- 0 for property currency, 1 for scenario currency
-  , IS_ASSURED integer -- 0 default calculation, 1 calculation for assured income
+  , IS_ASSURED_RESULTSET integer -- 0 default calculation, 1 calculation for assured income
+  , RESULTSET_ID integer
+  , RESULTSET string(255)
   , LINE_ITEM_TYPE_ID integer
   , LINE_ITEM_TYPE_NAME string(255)
-  , ACCOUNT_ID string(255)
+  , ACCOUNT_CODE string(255)
   , VALUATION_YEAR_TOTAL double
   , RESALE_YEAR_TOTAL double
-  , IS_BASE_PROPERTY boolean
   , AMOUNT double
   , DATE date
   , LDTS timestamp_ltz
   , RSRC string(100)
 );
 
- CREATE TABLE IF NOT EXISTS SAT_AE_REVEX_DETAILS (
-     MD5_HUB_AE_REVEX string(32)
-   , HASH_DIFF string(32)
-   , REVEX_NAME string(255)
-   , REVEX_TYPE integer -- TODO needs decoding
-   , ACCOUNT_CODE string(255)
-   , SORT_ORDER integer
-   , BASIS integer -- TODO needs decoding
-   , START_DATE date
-   , UNIT_OF_MEASURE integer -- TODO needs decoding, not yet implemented
-   , LDTS timestamp_ltz
-   , RSRC string(100)
- );
+CREATE TABLE IF NOT EXISTS SAT_AE_REVEX_DETAILS (
+    MD5_HUB_AE_REVEX string(32)
+  , HASH_DIFF string(32)
+  , REVEX_NAME string(255)
+  , REVEX_TYPE_ID integer
+  , REVEX_TYPE_ENUM string(255)
+  , ACCOUNT_CODE string(255)
+  , SORT_ORDER integer
+  , BASIS integer -- TODO needs decoding
+  , START_DATE date
+  , UNIT_OF_MEASURE integer -- TODO needs decoding, not yet implemented
+  , LDTS timestamp_ltz
+  , RSRC string(100)
+);
 
 CREATE TABLE IF NOT EXISTS SAT_AE_REVEX_CASHFLOW (
     MD5_HUB_AE_REVEX string(32)
   , HASH_DIFF string(32)
   , CURRENCY_BASIS integer -- 0 for property currency, 1 for scenario currency
-  , IS_ASSURED integer -- 0 default calculation, 1 calculation for assured income
+  , IS_ASSURED_RESULTSET integer -- 0 default calculation, 1 calculation for assured income
+  , REVEX_TYPE_ID integer
+  , REVEX_TYPE_ENUM string(255)
   , LINE_ITEM_TYPE_ID integer
   , LINE_ITEM_TYPE_NAME string(255)
   , UNIT_OF_MEASURE integer -- TODO needs decoding, not yet implemented
@@ -211,8 +235,11 @@ CREATE TABLE IF NOT EXISTS SAT_AE_REVEX_PAYMENT (
     MD5_HUB_AE_REVEX string(32)
   , HASH_DIFF string(32)
   , CURRENCY_BASIS integer -- 0 for property currency, 1 for scenario currency
-  , IS_ASSURED integer -- 0 default calculation, 1 calculation for assured income
-  , RESULTSET integer -- TODO needs decoding, not yet implemented
+  , IS_ASSURED_RESULTSET integer -- 0 default calculation, 1 calculation for assured income
+  , RESULTSET_ID integer
+  , RESULTSET string(255)
+  , REVEX_TYPE_ID integer
+  , REVEX_TYPE_ENUM string(255)
   , LINE_ITEM_TYPE_ID integer
   , LINE_ITEM_TYPE_NAME string(255)
   , AMOUNT double
@@ -240,16 +267,19 @@ CREATE TABLE IF NOT EXISTS SAT_AE_LEASE_VERSION (
 CREATE TABLE IF NOT EXISTS SAT_AE_LEASE_DETAILS (
     MD5_HUB_AE_LEASE string(32)
   , HASH_DIFF string(32)
+  , IS_ASSURED_RESULTSET integer -- 0 default calculation, 1 calculation for assured income
   , LEASE_AGGREGATION_KEY integer -- ID of the record on the rent roll
   , IS_BASE_LEASE boolean -- True if the lease is on the rent roll, False if is generated by the calc for future leases
   , TENANT_NAME string(255)
   , SUITE string(255)
   , TENURE string(255)
-  , LEASE_TYPE integer -- TODO needs decoding
+  , LEASE_TYPE integer
+  , LEASE_TYPE_ENUM string(255)
   , CUSTOM_LEASE_TYPE string(255)
   , LEASE_BEGIN date
   , LEASE_EXPIRY date
-  , EXPIRY_TYPE integer -- TODO needs decoding
+  , EXPIRY_TYPE integer
+  , EXPIRY_TYPE_ENUM string(255)
   , EARLIEST_BREAK date
   , REMAINING_TERM_DAYS integer
   , LEASE_STATUS string(255)
@@ -267,7 +297,7 @@ CREATE TABLE IF NOT EXISTS SAT_AE_LEASE_PAYMENT (
     MD5_HUB_AE_LEASE string(32)
   , HASH_DIFF string(32)
   , CURRENCY_BASIS integer -- 0 for property currency, 1 for scenario currency
-  , IS_ASSURED integer -- 0 default calculation, 1 calculation for assured income
+  , IS_ASSURED_RESULTSET integer -- 0 default calculation, 1 calculation for assured income
   , LINE_ITEM_TYPE_ID integer
   , LINE_ITEM_TYPE_NAME string(255)
   , AMOUNT double
@@ -280,7 +310,7 @@ CREATE TABLE IF NOT EXISTS SAT_AE_LEASE_CASHFLOW (
     MD5_HUB_AE_LEASE string(32)
   , HASH_DIFF string(32)
   , CURRENCY_BASIS integer -- 0 for property currency, 1 for scenario currency
-  , IS_ASSURED integer -- 0 default calculation, 1 calculation for assured income
+  , IS_ASSURED_RESULTSET integer -- 0 default calculation, 1 calculation for assured income
   , LINE_ITEM_TYPE_ID integer
   , LINE_ITEM_TYPE_NAME string(255)
   , LEASE_BEGIN_VALUE double
@@ -298,9 +328,11 @@ CREATE TABLE IF NOT EXISTS SAT_AE_LOAN_DETAILS (
     MD5_HUB_AE_LOAN string(32)
   , HASH_DIFF string(32)
   , LOAN_NAME string (255)
-  , LOAN_TYPE integer -- TODO needs decoding
-  , HOW_INPUT integer -- TODO needs decoding
+  , LOAN_TYPE integer
+  , LOAN_TYPE_ENUM string (255)
   , SENIORITY integer -- TODO needs decoding
+  , HOW_INPUT integer
+  , HOW_INPUT_ENUM string (255)
   , LOAN_DATE date
   , LOAN_END date
   , LDTS timestamp_ltz
@@ -311,8 +343,9 @@ CREATE TABLE IF NOT EXISTS SAT_AE_LOAN_PAYMENT (
     MD5_HUB_AE_LOAN string(32)
   , HASH_DIFF string(32)
   , CURRENCY_BASIS integer
-  , IS_ASSURED_RESULT_SET integer
-  , RESULT_SET integer
+  , IS_ASSURED_RESULTSET integer
+  , RESULTSET_ID integer
+  , RESULTSET string(255)
   , LINE_ITEM_TYPE integer
   , LINE_ITEM_NAME string(255)
   , ACCOUNT_CODE string(255)
@@ -326,6 +359,30 @@ CREATE TABLE IF NOT EXISTS SAT_AE_LOAN_VERSION (
     MD5_HUB_AE_LOAN string(32)
   , HASH_DIFF string(32)
   , PROPERTY_VERSION integer
+  , LDTS timestamp_ltz
+  , RSRC string(100)
+);
+
+CREATE TABLE IF NOT EXISTS SAT_AE_LINE_ITEM_TYPE_DETAILS (
+    MD5_HUB_AE_LINE_ITEM_TYPE string(32)
+  , HASH_DIFF string(32)
+  , LINE_ITEM_TYPE_ID integer
+  , LINE_ITEM_TYPE_PARENT_ID integer
+  , CLASS_TYPE string(255)
+  , ACCOUNT_RELATION_TYPE string(255)
+  , SORT_ORDER integer
+  , REPORT_DESCRIPTION string(255)
+  , REPORT_GROUP string(255)
+  , SHOW_ENTITIES boolean
+  , IS_HEADER integer -- TODO needs decoding
+  , COST_CODE_TYPE string(255)
+  , LINEITEM_DEPTH integer
+  , UNIT_OF_MEASURE_TYPE string(255)
+  , LINEITEM_AGGREGATION_TYPE integer -- TODO needs decoding
+  , RESULT_STORAGE_LOCATION string(255)
+  , SECONDARY_RESULT_STORAGE_LOCATION string(255)
+  , THIRD_RESULT_STORAGE_LOCATION string(255)
+  , ACCOUNT_CODE string(255)
   , LDTS timestamp_ltz
   , RSRC string(100)
 );
@@ -703,7 +760,7 @@ CREATE TABLE IF NOT EXISTS LINK_AT_ENTITY_EXT_PROPERTY (
   , MD5_HUB_EXTERNAL_PROPERTY string(32)
   , SCENARIO_ID integer
   , ENTITY_ID integer
-  , EXTERNAL_PROPERTY_ID string
+  , EXTERNAL_PROPERTY_ID string(255)
   , LDTS timestamp_ltz
   , RSRC string(100)
 );
@@ -759,7 +816,7 @@ CREATE TABLE IF NOT EXISTS LINK_AT_RELATIONSHIP (
 
 CREATE TABLE IF NOT EXISTS HUB_EXTERNAL_PROPERTY (
     MD5_HUB_EXTERNAL_PROPERTY string(32)
-  , EXTERNAL_PROPERTY_ID string
+  , EXTERNAL_PROPERTY_ID string(255)
   , LDTS timestamp_ltz
   , RSRC string(100)
 );
@@ -778,9 +835,9 @@ CREATE TABLE IF NOT EXISTS HUB_EXTERNAL_LEASE (
 CREATE TABLE IF NOT EXISTS SAT_PLATFORM_SCENARIO_DETAILS (
     MD5_LINK_PLATFORM_SCENARIO string(32)
   , HASH_DIFF string(32)
-  , PLATFORM_SCENARIO_NAME string
-  , AT_SCENARIO_NAME string
-  , AE_SCENARIO_NAME string
+  , PLATFORM_SCENARIO_NAME string(520)
+  , AT_SCENARIO_NAME string(255)
+  , AE_SCENARIO_NAME string(255)
   , LDTS timestamp_ltz
   , RSRC string(100)
 );
